@@ -84,7 +84,6 @@
     </section>
   </sc-if>
 
-
   <sc-if value="{{ isAbout }}">
     <section style="padding:64px 6vw 90px;max-width:960px;margin:0 auto;">
       <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:24px;margin-bottom:48px;">
@@ -275,6 +274,266 @@
 </x-dc>
 <script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:900},&quot;accentColor&quot;:{&quot;editor&quot;:&quot;color&quot;,&quot;default&quot;:&quot;#3d6b52&quot;,&quot;options&quot;:[&quot;#3d6b52&quot;,&quot;#22406b&quot;,&quot;#7a2e2e&quot;,&quot;#8a6d1f&quot;],&quot;tsType&quot;:&quot;string&quot;}}">
 class Component extends DCLogic {
+  heroRef = (el) => {
+    if (this._hero) { this._hero.stop(); this._hero = null; }
+    if (el) this._hero = this.startHero(el);
+  };
+
+  componentWillUnmount() { if (this._hero) this._hero.stop(); }
+
+  startHero(canvas) {
+    const ctx = canvas.getContext('2d');
+    const reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const COL = { edge: 'rgba(150,180,220,0.22)', node: '#a9c1e0', text: 'rgba(205,218,238,0.78)', green: '#8fd1a8', gold: '#e9b86a', fill: '#14284c' };
+    const rand = Math.random;
+    const gauss = () => Math.sqrt(-2 * Math.log(1 - rand())) * Math.cos(2 * Math.PI * rand());
+    let W = 0, H = 0, L = {}, raf = 0, alive = true, t = 0, last = performance.now();
+
+    // Reaction network
+    const species = [{ n: 'A', f: 0 }, { n: 'B', f: 0 }, { n: 'C', f: 0 }, { n: 'D', f: 0 }];
+    const rx = [
+      { a: 0, b: 1, k: 'κ₁', r: 1.0, c: -0.2 },
+      { a: 1, b: 2, k: 'κ₂', r: 0.7, c: -0.2 },
+      { a: 2, b: 3, k: 'κ₃', r: 0.55, c: -0.2 },
+      { a: 3, b: 0, k: 'κ₄', r: 0.45, c: -0.2 },
+      { a: 1, b: 3, k: 'κ₅', r: 0.6, c: 0 },
+    ];
+    const totalRate = rx.reduce((s, r) => s + r.r, 0);
+    let particles = [], events = [], nextFire = 0.3;
+    const R = 15;
+    const q = (p0, c, p2, u) => ({ x: (1 - u) * (1 - u) * p0.x + 2 * (1 - u) * u * c.x + u * u * p2.x, y: (1 - u) * (1 - u) * p0.y + 2 * (1 - u) * u * c.y + u * u * p2.y });
+    const geom = (r) => {
+      const p0 = species[r.a], p2 = species[r.b];
+      const dx = p2.x - p0.x, dy = p2.y - p0.y, len = Math.hypot(dx, dy) || 1;
+      const c = { x: (p0.x + p2.x) / 2 + (-dy / len) * r.c * len, y: (p0.y + p2.y) / 2 + (dx / len) * r.c * len };
+      const t0 = Math.min(0.3, (R + 3) / len * 1.05);
+      return { p0, p2, c, t0, t1: 1 - t0 };
+    };
+
+    // MCMC
+    const TH = -0.65, A = 1.0, B = 0.38;
+    const logp = (x, y) => { const c = Math.cos(TH), s = Math.sin(TH); const u = c * x + s * y, v = -s * x + c * y; return -0.5 * ((u / A) ** 2 + (v / B) ** 2); };
+    let cur = { x: 2.2, y: -1.6 }, curLp = logp(cur.x, cur.y), trail = [], samples = [], rej = [];
+    const NB = 30; let hist = new Array(NB).fill(0), stepAcc = 0;
+    const varX = A * A * Math.cos(TH) ** 2 + B * B * Math.sin(TH) ** 2;
+    const mcStep = () => {
+      const px = cur.x + gauss() * 0.34, py = cur.y + gauss() * 0.34, lp = logp(px, py);
+      if (Math.log(rand()) < lp - curLp) { cur = { x: px, y: py }; curLp = lp; }
+      else rej.push({ x: px, y: py, fx: cur.x, fy: cur.y, life: 1 });
+      trail.push({ x: cur.x, y: cur.y }); if (trail.length > 40) trail.shift();
+      samples.push({ x: cur.x, y: cur.y }); if (samples.length > 500) samples.shift();
+      for (let i = 0; i < NB; i++) hist[i] *= 0.997;
+      const idx = Math.floor((cur.x + 3) / 6 * NB); if (idx >= 0 && idx < NB) hist[idx] += 1;
+    };
+
+    // Neural network
+    const layers = [4, 6, 6, 3];
+    let flashes = layers.map(n => new Array(n).fill(0)), pulses = [], pulseAcc = 0;
+
+    const layout = () => {
+      const r = canvas.getBoundingClientRect();
+      W = r.width; H = r.height;
+      const dpr = Math.min(2, window.devicePixelRatio || 1);
+      canvas.width = Math.max(1, Math.round(W * dpr)); canvas.height = Math.max(1, Math.round(H * dpr));
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const top = 46, ph = Math.max(110, H - top - 30);
+      const narrow = W < 760;
+      if (!narrow) {
+        L.rn = { x: W * 0.05, y: top, w: W * 0.27, h: ph };
+        L.mc = { x: W * 0.385, y: top, w: W * 0.23, h: ph };
+        L.nn = { x: W * 0.68, y: top, w: W * 0.27, h: ph };
+      } else {
+        L.rn = { x: W * 0.05, y: top, w: W * 0.42, h: ph };
+        L.mc = null;
+        L.nn = { x: W * 0.55, y: top, w: W * 0.4, h: ph };
+      }
+      const b = L.rn, cx = b.x + b.w / 2, cy = b.y + b.h * 0.4, rX = Math.min(b.w * 0.36, b.h * 0.55), rY = b.h * 0.3;
+      species[0].x = cx - rX; species[0].y = cy;
+      species[1].x = cx; species[1].y = cy - rY;
+      species[2].x = cx + rX; species[2].y = cy;
+      species[3].x = cx; species[3].y = cy + rY;
+      const nb = L.nn, ix = nb.x + 22, iw = nb.w - 44;
+      L.nodes = layers.map((n, li) => Array.from({ length: n }, (_, i) => ({
+        x: ix + iw * (li / (layers.length - 1)),
+        y: nb.y + nb.h * 0.08 + nb.h * 0.74 * (n === 1 ? 0.5 : i / (n - 1)),
+      })));
+    };
+
+    const update = (dt) => {
+      t += dt;
+      species.forEach(s => { s.f = Math.max(0, s.f - dt * 1.6); });
+      if (t >= nextFire) {
+        let u = rand() * totalRate, ri = 0;
+        for (; ri < rx.length - 1; ri++) { u -= rx[ri].r; if (u <= 0) break; }
+        particles.push({ ri, u: -1 });
+        species[rx[ri].a].f = Math.max(species[rx[ri].a].f, 0.5);
+        nextFire = t + (-Math.log(1 - rand()) / totalRate) * 1.6;
+      }
+      particles = particles.filter(p => {
+        const g = geom(rx[p.ri]);
+        if (p.u < 0) p.u = g.t0;
+        p.u += dt / 0.9 * (g.t1 - g.t0);
+        if (p.u >= g.t1) { species[rx[p.ri].b].f = 1; events.push({ ri: p.ri, time: t }); return false; }
+        return true;
+      });
+      events = events.filter(e => t - e.time < 9);
+
+      stepAcc += dt;
+      while (stepAcc > 0.07) { stepAcc -= 0.07; mcStep(); }
+      rej.forEach(r => { r.life -= dt * 2.5; }); rej = rej.filter(r => r.life > 0);
+
+      flashes.forEach(arr => { for (let i = 0; i < arr.length; i++) arr[i] = Math.max(0, arr[i] - dt * 2.2); });
+      pulseAcc += dt;
+      if (pulseAcc > 0.16) { pulseAcc = 0; pulses.push({ path: layers.map(n => Math.floor(rand() * n)), seg: 0, u: 0 }); flashes[0][pulses[pulses.length - 1].path[0]] = 1; }
+      pulses = pulses.filter(p => {
+        p.u += dt / 0.32;
+        if (p.u >= 1) { p.seg++; p.u = 0; flashes[p.seg][p.path[p.seg]] = 1; if (p.seg >= layers.length - 1) return false; }
+        return true;
+      });
+    };
+
+    const label = (txt, x, y, align) => {
+      ctx.font = "600 10.5px Inter, sans-serif"; ctx.fillStyle = COL.text; ctx.textAlign = align || 'left'; ctx.textBaseline = 'alphabetic';
+      ctx.fillText(txt, x, y);
+    };
+    const arrowHead = (x, y, ang, size, color) => {
+      ctx.save(); ctx.translate(x, y); ctx.rotate(ang); ctx.fillStyle = color;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-size, -size * 0.55); ctx.lineTo(-size, size * 0.55); ctx.closePath(); ctx.fill(); ctx.restore();
+    };
+
+    const draw = () => {
+      ctx.clearRect(0, 0, W, H);
+      ctx.fillStyle = '#10213f'; ctx.fillRect(0, 0, W, H);
+      ctx.fillStyle = 'rgba(255,255,255,0.035)';
+      for (let gx = 14; gx < W; gx += 28) for (let gy = 14; gy < H; gy += 28) ctx.fillRect(gx, gy, 1.2, 1.2);
+
+      // connectors
+      const conn = (x0, x1, y) => {
+        ctx.save(); ctx.strokeStyle = 'rgba(169,193,224,0.35)'; ctx.lineWidth = 1; ctx.setLineDash([4, 6]); ctx.lineDashOffset = -t * 18;
+        ctx.beginPath(); ctx.moveTo(x0, y); ctx.lineTo(x1 - 6, y); ctx.stroke(); ctx.restore();
+        arrowHead(x1, y, 0, 7, 'rgba(169,193,224,0.5)');
+      };
+      const midY = L.rn.y + L.rn.h * 0.4;
+      if (L.mc) { conn(L.rn.x + L.rn.w + 6, L.mc.x - 6, midY); conn(L.mc.x + L.mc.w + 6, L.nn.x + 4, midY); }
+      else conn(L.rn.x + L.rn.w + 4, L.nn.x + 8, midY);
+
+      // reaction network
+      label('STOCHASTIC REACTION NETWORK', L.rn.x, 28);
+      rx.forEach(r => {
+        const g = geom(r);
+        ctx.strokeStyle = COL.edge; ctx.lineWidth = 1.3;
+        ctx.beginPath();
+        const s = q(g.p0, g.c, g.p2, g.t0); ctx.moveTo(s.x, s.y);
+        for (let u = g.t0; u <= g.t1 + 1e-6; u += (g.t1 - g.t0) / 24) { const p = q(g.p0, g.c, g.p2, u); ctx.lineTo(p.x, p.y); }
+        ctx.stroke();
+        const e = q(g.p0, g.c, g.p2, g.t1), e0 = q(g.p0, g.c, g.p2, g.t1 - 0.02);
+        arrowHead(e.x, e.y, Math.atan2(e.y - e0.y, e.x - e0.x), 7, 'rgba(169,193,224,0.55)');
+        const m = q(g.p0, g.c, g.p2, 0.5);
+        const off = r.c === 0 ? { x: 14, y: 0 } : { x: (m.x - (L.rn.x + L.rn.w / 2)) * 0.18, y: (m.y - (L.rn.y + L.rn.h * 0.4)) * 0.22 };
+        ctx.font = "italic 12px 'Source Serif 4', serif"; ctx.fillStyle = COL.gold; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(r.k, m.x + off.x, m.y + off.y);
+      });
+      particles.forEach(p => {
+        const g = geom(rx[p.ri]); const pt = q(g.p0, g.c, g.p2, Math.max(g.t0, p.u));
+        ctx.save(); ctx.shadowColor = COL.gold; ctx.shadowBlur = 10; ctx.fillStyle = COL.gold;
+        ctx.beginPath(); ctx.arc(pt.x, pt.y, 3.2, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+      });
+      species.forEach(s => {
+        ctx.save();
+        if (s.f > 0) { ctx.shadowColor = COL.green; ctx.shadowBlur = 18 * s.f; }
+        ctx.fillStyle = COL.fill; ctx.strokeStyle = s.f > 0.05 ? `rgba(143,209,168,${0.5 + 0.5 * s.f})` : COL.node; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.arc(s.x, s.y, R, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.restore();
+        ctx.font = "600 13px 'Source Serif 4', serif"; ctx.fillStyle = '#e8eef7'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+        ctx.fillText(s.n, s.x, s.y + 0.5);
+      });
+      // event-time timeline
+      const ty = L.rn.y + L.rn.h - 6, tx0 = L.rn.x, tx1 = L.rn.x + L.rn.w;
+      label('event times  t₁, t₂, …', tx0, ty - 20);
+      ctx.strokeStyle = 'rgba(169,193,224,0.3)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(tx0, ty); ctx.lineTo(tx1, ty); ctx.stroke();
+      events.forEach(e => {
+        const age = t - e.time, x = tx1 - age / 9 * (tx1 - tx0);
+        const a = Math.max(0, 1 - age / 9), h = age < 0.4 ? 12 + (0.4 - age) * 20 : 10;
+        ctx.strokeStyle = `rgba(233,184,106,${0.25 + 0.75 * a})`; ctx.lineWidth = 1.5;
+        ctx.beginPath(); ctx.moveTo(x, ty); ctx.lineTo(x, ty - h); ctx.stroke();
+      });
+
+      // MCMC
+      if (L.mc) {
+        const b = L.mc, s = Math.min(b.w, b.h * 0.7) / 6.2, cx = b.x + b.w / 2, cy = b.y + b.h * 0.38;
+        const P = (x, y) => ({ x: cx + x * s, y: cy - y * s });
+        label('MCMC POSTERIOR  p(κ | data)', b.x, 28);
+        [1, 2, 2.8].forEach((k, i) => {
+          ctx.strokeStyle = `rgba(169,193,224,${0.38 - i * 0.1})`; ctx.lineWidth = 1;
+          ctx.beginPath(); ctx.ellipse(cx, cy, k * A * s, k * B * s, -TH, 0, Math.PI * 2); ctx.stroke();
+        });
+        ctx.fillStyle = 'rgba(143,209,168,0.32)';
+        samples.forEach(p => { const q2 = P(p.x, p.y); ctx.fillRect(q2.x - 0.8, q2.y - 0.8, 1.6, 1.6); });
+        rej.forEach(r => {
+          const a = P(r.fx, r.fy), z = P(r.x, r.y);
+          ctx.strokeStyle = `rgba(233,184,106,${0.6 * r.life})`; ctx.lineWidth = 1; ctx.setLineDash([2, 3]);
+          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(z.x, z.y); ctx.stroke(); ctx.setLineDash([]);
+          ctx.fillStyle = `rgba(233,184,106,${0.8 * r.life})`; ctx.fillRect(z.x - 1.5, z.y - 1.5, 3, 3);
+        });
+        for (let i = 1; i < trail.length; i++) {
+          const a = P(trail[i - 1].x, trail[i - 1].y), z = P(trail[i].x, trail[i].y);
+          ctx.strokeStyle = `rgba(143,209,168,${(i / trail.length) * 0.9})`; ctx.lineWidth = 1.3;
+          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(z.x, z.y); ctx.stroke();
+        }
+        const c0 = P(cur.x, cur.y);
+        ctx.save(); ctx.shadowColor = COL.green; ctx.shadowBlur = 14; ctx.fillStyle = '#d9f5e3';
+        ctx.beginPath(); ctx.arc(c0.x, c0.y, 3.6, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+        // marginal histogram
+        const base = b.y + b.h - 6, hh = b.h * 0.18, bw = 6 * s / NB, mx = Math.max(1e-6, ...hist);
+        ctx.strokeStyle = 'rgba(169,193,224,0.3)'; ctx.beginPath(); ctx.moveTo(cx - 3 * s, base); ctx.lineTo(cx + 3 * s, base); ctx.stroke();
+        hist.forEach((v, i) => {
+          const h = v / mx * hh; ctx.fillStyle = 'rgba(143,209,168,0.5)';
+          ctx.fillRect(cx - 3 * s + i * bw + 0.5, base - h, Math.max(1, bw - 1), h);
+        });
+        ctx.strokeStyle = COL.gold; ctx.lineWidth = 1.2; ctx.beginPath();
+        for (let i = 0; i <= 60; i++) { const x = -3 + i * 0.1, y = Math.exp(-x * x / (2 * varX)); const X = cx + x * s, Y = base - y * hh; i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); }
+        ctx.stroke();
+      }
+
+      // neural network
+      label('NEURAL NETWORK  κ̂ = f_θ(t)', L.nn.x, 28);
+      ctx.strokeStyle = 'rgba(150,180,220,0.12)'; ctx.lineWidth = 1;
+      for (let li = 0; li < layers.length - 1; li++) L.nodes[li].forEach(a => L.nodes[li + 1].forEach(z => { ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(z.x, z.y); ctx.stroke(); }));
+      pulses.forEach(p => {
+        const a = L.nodes[p.seg][p.path[p.seg]], z = L.nodes[p.seg + 1][p.path[p.seg + 1]];
+        ctx.strokeStyle = 'rgba(143,209,168,0.45)'; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(z.x, z.y); ctx.stroke();
+        const x = a.x + (z.x - a.x) * p.u, y = a.y + (z.y - a.y) * p.u;
+        ctx.save(); ctx.shadowColor = COL.green; ctx.shadowBlur = 10; ctx.fillStyle = '#d9f5e3';
+        ctx.beginPath(); ctx.arc(x, y, 2.6, 0, Math.PI * 2); ctx.fill(); ctx.restore();
+      });
+      L.nodes.forEach((col, li) => col.forEach((n, i) => {
+        const f = flashes[li][i], r = (li === 0 || li === layers.length - 1) ? 6 : 5;
+        ctx.save(); if (f > 0) { ctx.shadowColor = COL.green; ctx.shadowBlur = 12 * f; }
+        ctx.fillStyle = f > 0.05 ? `rgba(143,209,168,${0.25 + 0.6 * f})` : COL.fill; ctx.strokeStyle = COL.node; ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.arc(n.x, n.y, r, 0, Math.PI * 2); ctx.fill(); ctx.stroke(); ctx.restore();
+      }));
+      ctx.font = "italic 11.5px 'Source Serif 4', serif"; ctx.textBaseline = 'middle';
+      ctx.fillStyle = COL.text; ctx.textAlign = 'right';
+      L.nodes[0].forEach((n, i) => ctx.fillText(`t${'₁₂₃₄'[i]}`, n.x - 11, n.y));
+      ctx.fillStyle = COL.gold; ctx.textAlign = 'left';
+      L.nodes[layers.length - 1].forEach((n, i) => ctx.fillText(`κ̂${'₁₂₃'[i]}`, n.x + 11, n.y));
+    };
+
+    const frame = (now) => {
+      if (!alive) return;
+      const dt = Math.min(0.05, (now - last) / 1000); last = now;
+      update(dt); draw();
+      raf = requestAnimationFrame(frame);
+    };
+
+    layout();
+    const ro = new ResizeObserver(() => { layout(); if (reduce) draw(); });
+    ro.observe(canvas);
+    if (reduce) { for (let i = 0; i < 300; i++) update(0.05); draw(); }
+    else raf = requestAnimationFrame(frame);
+
+    return { stop: () => { alive = false; cancelAnimationFrame(raf); ro.disconnect(); } };
+  }
+
   state = { page: 'home', showAllPresentations: false, mentoringSub: 'highschool' };
 
   education = [
@@ -359,6 +618,7 @@ class Component extends DCLogic {
       navBorder[p] = page === p ? accentColor : 'transparent';
     }
     return {
+      heroRef: this.heroRef,
       accentColor,
       accentColorLight: accentColor,
       navWeight,
