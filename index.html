@@ -22,7 +22,7 @@
 <div style="font-family:'Inter',sans-serif;color:oklch(24% 0.02 260);max-width:100%;overflow-x:hidden;min-height:100vh;">
 
   <nav style="position:sticky;top:0;z-index:10;background:oklch(98% 0.012 80 / 0.92);backdrop-filter:blur(6px);border-bottom:1px solid oklch(88% 0.01 80);padding:14px 6vw;display:flex;gap:28px;align-items:center;flex-wrap:wrap;">
-    <button onclick="{{ goHome }}" style="font-family:'Source Serif 4',serif;font-weight:700;font-size:17px;letter-spacing:0.2px;background:none;border:none;cursor:pointer;color:inherit;padding:0;">Jacob Kapita</button>
+    <button onclick="{{ goHome }}" style="font-family:'Source Serif 4',serif;font-weight:700;font-size:17px;letter-spacing:0.2px;background:none;border:none;cursor:pointer;color:inherit;padding:0;white-space:nowrap;">Jacob Kapita</button>
     <div style="display:flex;gap:22px;flex-wrap:wrap;margin-left:auto;font-size:14px;">
       <button onclick="{{ goAbout }}" style="background:none;border:none;border-bottom:2px solid {{navBorder.about}};cursor:pointer;padding:0 0 2px;font-size:14px;color:oklch(30% 0.02 260);font-weight:{{navWeight.about}};">About</button>
       <button onclick="{{ goEducation }}" style="background:none;border:none;border-bottom:2px solid {{navBorder.education}};cursor:pointer;padding:0 0 2px;font-size:14px;color:oklch(30% 0.02 260);font-weight:{{navWeight.education}};">Education</button>
@@ -36,16 +36,16 @@
   </nav>
 
   <sc-if value="{{ isHome }}" hint-placeholder-val="{{ true }}">
-    <section style="display:flex;flex-direction:column;min-height:100vh;">
-      <div style="position:relative;flex:1 1 auto;min-height:340px;">
-        <img src="./assetsPosterSiam26.jpg" alt="Maganizo Kapita" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;object-position:center 25%;">
-        <div style="position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,rgba(16,33,63,0.05),rgba(16,33,63,0.94) 92%,#10213f 100%);"></div>
+    <section style="display:flex;flex-direction:column;min-height:calc(100vh - 52px);background:#10213f;">
+      <div style="position:relative;flex:1 1 auto;min-height:240px;overflow:hidden;background:#10213f;">
+        <canvas ref="{{ heroRef }}" aria-label="Animation: stochastic reaction network, MCMC posterior sampling and a neural network inferring reaction rates" style="position:absolute;inset:0;width:100%;height:100%;display:block;"></canvas>
+        <div style="position:absolute;inset:0;pointer-events:none;background:linear-gradient(180deg,rgba(16,33,63,0) 86%,#10213f 100%);"></div>
       </div>
-      <div style="color:#fff;padding:8px 6vw 56px;box-sizing:border-box;margin-top:-1px;background-color:#10213f;text-align:center;">
+      <div style="color:#fff;padding:8px 6vw 40px;box-sizing:border-box;margin-top:-1px;background-color:#10213f;text-align:center;flex:0 0 auto;">
         <div style="font-size:13px;letter-spacing:0.18em;text-transform:uppercase;color:{{accentColorLight}};margin-bottom:16px;font-weight:600;">Ph.D. Candidate · Mathematics</div>
-        <h1 style="font-family:'Source Serif 4',serif;font-size:clamp(40px,6.5vw,76px);line-height:0.98;margin:0 0 20px;font-weight:700;letter-spacing:-0.01em;">Maganizo Kapita</h1>
+        <h1 style="font-family:'Source Serif 4',serif;font-size:clamp(36px,min(6vw,7.5vh),68px);line-height:0.98;margin:0 0 18px;font-weight:700;letter-spacing:-0.01em;">Maganizo Kapita</h1>
         <div style="width:64px;height:3px;background:{{accentColor}};margin:0 auto 22px;"></div>
-        <p style="font-size:18px;margin:0 auto 36px;max-width:600px;color:oklch(90% 0.01 80);line-height:1.5;">I'm Maganizo (Jacob) Kapita — call me Maga . From Chipini to the World. I am a Ph.D. candidate in Mathematics at Louisiana State University, working on computational stochastic analysis, machine learning, and data science.</p>
+        <p style="font-size:17px;margin:0 auto 26px;max-width:640px;color:oklch(90% 0.01 80);line-height:1.5;">I'm Maganizo (Jacob) Kapita — call me Maga . From Chipini to the World. I am a Ph.D. candidate in Mathematics at Louisiana State University, working on computational stochastic analysis, machine learning, and data science.</p>
 
         <div style="display:flex;align-items:center;justify-content:center;gap:8px;flex-wrap:wrap;font-family:'Source Serif 4',serif;">
           <button onclick="{{ goAbout }}" style="background:oklch(100% 0 0 / 0.05);border:1px solid oklch(85% 0.01 80 / 0.3);color:#fff;padding:9px 16px;border-radius:3px;cursor:pointer;font-size:14.5px;" style-hover="border-color:{{accentColor}};color:{{accentColor}};background:oklch(100% 0 0 / 0.09);">About</button>
@@ -83,6 +83,7 @@
       </div>
     </section>
   </sc-if>
+
 
   <sc-if value="{{ isAbout }}">
     <section style="padding:64px 6vw 90px;max-width:960px;margin:0 auto;">
